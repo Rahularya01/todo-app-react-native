@@ -1,10 +1,12 @@
+import "react-native-get-random-values";
 import { zodResolver } from "@hookform/resolvers/zod";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Stack, router } from "expo-router";
-import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { Text, TextInput, TouchableOpacity, View } from "react-native";
 import { z } from "zod";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { v4 as uuidv4 } from "uuid";
 
 const formSchema = z.object({
   title: z
@@ -17,17 +19,42 @@ const formSchema = z.object({
 type FormData = z.infer<typeof formSchema>;
 
 const AddTodo = () => {
+  const queryClient = useQueryClient();
+
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
   });
 
-  const onSubmit = async (data: FormData) => {
-    try {
-      await AsyncStorage.setItem("todo", JSON.stringify(data));
-      router.back();
-    } catch (e) {
-      alert("Failed to save the data to the storage");
-    }
+  const { mutate, isPending } = useMutation({
+    mutationFn: async (payload: Todo) => {
+      const todos = await AsyncStorage.getItem("todo");
+      const data = JSON.parse(todos || "[]") as Todo[];
+      const response = await AsyncStorage.setItem(
+        "todo",
+        JSON.stringify([...data, payload])
+      );
+      return response;
+    },
+  });
+
+  const onSubmit = (data: FormData) => {
+    const payload: Todo = {
+      _id: uuidv4(),
+      isCompleted: false,
+      title: data.title,
+    };
+
+    mutate(payload, {
+      async onSuccess() {
+        queryClient.refetchQueries({
+          queryKey: ["todos"],
+        });
+        router.back();
+      },
+      onError() {
+        alert("Something went wrong");
+      },
+    });
   };
 
   return (
@@ -63,7 +90,7 @@ const AddTodo = () => {
         />
 
         <TouchableOpacity
-          disabled={form.formState.isSubmitting}
+          disabled={isPending}
           onPress={form.handleSubmit(onSubmit)}
         >
           <View className='w-full  rounded-lg mt-5 bg-indigo-500'>
